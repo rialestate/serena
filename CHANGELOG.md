@@ -55,6 +55,10 @@ Status of the `main` branch. Changes prior to the next official version change w
     Serena's own tools to close the gap (#1852)
 
 * Language Servers:
+  - Extensionless scripts are routed to their language by the shebang line (`#!/usr/bin/env python3`,
+    `#!/bin/bash`, ...): `FilenameMatcher` sniffs existing files without an extension for the interpreters a
+    language declares (Python, Bash, Ruby, Perl), so `dev`- and `bin/`-style scripts are seen by the symbol
+    index, the ignore checks and the tools instead of being invisible.
   - The Python servers (pyright, basedpyright, ty, pyrefly) and the TypeScript server advertise the
     `workspace.fileOperations` (willRename/didRename) and `textDocument.typeHierarchy` client capabilities.
   - The Python servers (pyright, basedpyright, ty, pyrefly) and the TypeScript server advertise the
