@@ -17,7 +17,9 @@ from serena.symbol import LanguageServerSymbolRetriever
 from solidlsp.ls_config import LanguageServerId
 from test.conftest import get_pytest_markers, get_repo_path, project_with_explicit_ls_context
 
-LS_SETTINGS = {"python_pyrefly": {"indexing_mode": "lazy-blocking"}}
+# pyrefly 1.1.1 advertises workspace/willRenameFiles and answers it with null; 1.2.0 answers the edits.
+# lazy-blocking: in the default indexing mode pyrefly may answer before its reverse-dependency graph is built.
+LS_SETTINGS = {"python_pyrefly": {"pyrefly_version": "1.2.0", "indexing_mode": "lazy-blocking"}}
 
 
 @contextmanager
