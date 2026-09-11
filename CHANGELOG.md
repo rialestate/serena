@@ -3,6 +3,14 @@
 Status of the `main` branch. Changes prior to the next official version change will appear here.
 
 * Tools:
+  - Add `rename_file`: renames or moves a file and updates the code that imports it, as the language server
+    proposes through `workspace/willRenameFiles` (Python via pyright/basedpyright/ty/pyrefly, TypeScript; other
+    servers that implement the request work unchanged). Files only; the tool's answer says when the server
+    proposed no edits, so the caller knows to search for the old name. With pyrefly, configure
+    `ls_specific_settings: {python_pyrefly: {indexing_mode: lazy-blocking}}`: in its default lazy-non-blocking
+    mode pyrefly may answer before its reverse-dependency graph is built and miss importers (measured: 1 of 5
+    dependents seen right after start-up, all 5 a few seconds later); in blocking mode the answer is complete,
+    the index completing cancels the first request and Serena's existing retry re-asks.
   - `find_implementations` on a class or interface for which the server reports no implementations now returns
     its direct subtypes from the server's type hierarchy (`textDocument/prepareTypeHierarchy` +
     `typeHierarchy/subtypes`), instead of `[]` — pyright and pyrefly answer `textDocument/implementation` for
@@ -47,6 +55,8 @@ Status of the `main` branch. Changes prior to the next official version change w
     Serena's own tools to close the gap (#1852)
 
 * Language Servers:
+  - The Python servers (pyright, basedpyright, ty, pyrefly) and the TypeScript server advertise the
+    `workspace.fileOperations` (willRename/didRename) and `textDocument.typeHierarchy` client capabilities.
   - The Python servers (pyright, basedpyright, ty, pyrefly) and the TypeScript server advertise the
     `workspace.fileOperations` (willRename/didRename) and `textDocument.typeHierarchy` client capabilities.
   - Bump the bundled pyrefly to 1.2.0: 1.1.1 advertises `workspace/willRenameFiles` but answers it with `null`;
