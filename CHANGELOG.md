@@ -64,11 +64,11 @@ Status of the `main` branch. Changes prior to the next official version change w
 
 * Language Servers:
   - Extensionless scripts are routed to their language by the shebang line (`#!/usr/bin/env python3`,
-    `#!/bin/bash`, ...): `FilenameMatcher` sniffs existing files without an extension for the interpreters a
-    language declares (Python, Bash, Ruby, Perl), so `dev`- and `bin/`-style scripts are seen by the symbol
-    index, the ignore checks and the tools instead of being invisible.
-  - The Python servers (pyright, basedpyright, ty, pyrefly) and the TypeScript server advertise the
-    `workspace.fileOperations` (willRename/didRename) and `textDocument.typeHierarchy` client capabilities.
+    `#!/bin/bash`, ...): `FilenameMatcher.is_relevant_file(path)` sniffs an existing file without an extension for
+    the interpreters a language declares (Python, Bash, Ruby, Perl), and the places that hold a path — the source
+    file gathering, the ignore checks, the language detection — ask it, so `dev`- and `bin/`-style scripts are
+    seen by the symbol index and the tools instead of being invisible. `is_relevant_filename` keeps its contract:
+    decided by the name alone, no file is read.
   - The Python servers (pyright, basedpyright, ty, pyrefly) and the TypeScript server advertise the
     `workspace.fileOperations` (willRename/didRename) and `textDocument.typeHierarchy` client capabilities.
   - Bump the bundled pyrefly to 1.2.0: 1.1.1 advertises `workspace/willRenameFiles` but answers it with `null`;
