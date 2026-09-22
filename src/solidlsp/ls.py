@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+
 import dataclasses
 import hashlib
 import json
@@ -548,7 +550,7 @@ class SolidLanguageServer(ABC):
         self._published_diagnostics_condition = threading.Condition()
 
         # initialise symbol caches
-        self.cache_dir = Path(self._solidlsp_settings.project_data_path) / self.CACHE_FOLDER_NAME / self.language_id
+        self.cache_dir = Path(self._solidlsp_settings.project_data_path) / self.CACHE_FOLDER_NAME / self.ls_id.get_key()
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         # * raw document symbols cache
         self._ls_specific_raw_document_symbols_cache_version = cache_version_raw_document_symbols
@@ -3020,10 +3022,8 @@ class SolidLanguageServer(ABC):
         high_level_fingerprint = self._document_symbols_cache_fingerprint()
         if high_level_fingerprint is not None:
             version.append(high_level_fingerprint)
-        raw_fingerprint = self._raw_document_symbols_cache_fingerprint()
-        if raw_fingerprint is not None:
-            version.append(raw_fingerprint)
-        return version[0] if len(version) == 1 else tuple(version)
+        version.append(self._raw_document_symbols_cache_version())
+        return tuple(version)
 
     def _save_raw_document_symbols_cache(self) -> None:
         cache_file = self.cache_dir / self.RAW_DOCUMENT_SYMBOL_CACHE_FILENAME
@@ -3210,44 +3210,6 @@ class SolidLanguageServer(ABC):
         with self.open_file(relative_file_path):
             return self.server.send.rename(params)
 
-    def _create_rename_files_params(self, old_relative_path: str, new_relative_path: str) -> RenameFilesParams:
-        return RenameFilesParams(
-            files=[FileRename(oldUri=self._resolve_file_uri(old_relative_path), newUri=self._resolve_file_uri(new_relative_path))]
-        )
-
-    def request_will_rename_files(self, old_relative_path: str, new_relative_path: str) -> ls_types.WorkspaceEdit | None:
-        """
-        Raise a [workspace/willRenameFiles](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#workspace_willRenameFiles)
-        request: the edit the language server proposes so that a file or folder can be renamed (or moved) without breaking
-        the code that refers to it — typically the import statements in other files. The edit is only retrieved, not applied,
-        and nothing is moved; the caller applies the edit (while the files are still at their current paths, which is what
-        the edit's URIs refer to), moves the file, and then calls :meth:`notify_did_rename_files`.
-
-        :param old_relative_path: the current relative path of the file or folder
-        :param new_relative_path: the relative path it is going to have
-        :return: the proposed WorkspaceEdit, or None if the server proposes no changes (or does not support the request)
-        """
-        if not self.server_started:
-            log.error("request_will_rename_files called before language server started")
-            raise SolidLSPException("Language Server not started")
-        params = self._create_rename_files_params(old_relative_path, new_relative_path)
-        if os.path.isfile(os.path.join(self.repository_root_path, old_relative_path)):
-            # opening the file is what makes some servers (tsserver) load the project it belongs to, which
-            # they need in order to compute the edits for its rename
-            with self.open_file(old_relative_path):
-                return self.server.send.will_rename_files(params)
-        return self.server.send.will_rename_files(params)
-
-    def notify_did_rename_files(self, old_relative_path: str, new_relative_path: str) -> None:
-        """
-        Send the [workspace/didRenameFiles](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#workspace_didRenameFiles)
-        notification after a file or folder was renamed (or moved) on disk, so the server updates its view of the workspace.
-
-        :param old_relative_path: the relative path the file or folder had
-        :param new_relative_path: the relative path it has now
-        """
-        self.server.notify.did_rename_files(self._create_rename_files_params(old_relative_path, new_relative_path))
-
     def request_type_hierarchy_subtypes(
         self, relative_file_path: str, line: int, column: int, include_body: bool = False
     ) -> list[ls_types.UnifiedSymbolInformation]:
@@ -3350,6 +3312,44 @@ class SolidLanguageServer(ABC):
             seen_keys.add(symbol_key)
             result.append(symbol)
         return result
+
+    def _create_rename_files_params(self, old_relative_path: str, new_relative_path: str) -> RenameFilesParams:
+        return RenameFilesParams(
+            files=[FileRename(oldUri=self._resolve_file_uri(old_relative_path), newUri=self._resolve_file_uri(new_relative_path))]
+        )
+
+    def request_will_rename_files(self, old_relative_path: str, new_relative_path: str) -> ls_types.WorkspaceEdit | None:
+        """
+        Raise a [workspace/willRenameFiles](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#workspace_willRenameFiles)
+        request: the edit the language server proposes so that a file or folder can be renamed (or moved) without breaking
+        the code that refers to it — typically the import statements in other files. The edit is only retrieved, not applied,
+        and nothing is moved; the caller applies the edit (while the files are still at their current paths, which is what
+        the edit's URIs refer to), moves the file, and then calls :meth:`notify_did_rename_files`.
+
+        :param old_relative_path: the current relative path of the file or folder
+        :param new_relative_path: the relative path it is going to have
+        :return: the proposed WorkspaceEdit, or None if the server proposes no changes (or does not support the request)
+        """
+        if not self.server_started:
+            log.error("request_will_rename_files called before language server started")
+            raise SolidLSPException("Language Server not started")
+        params = self._create_rename_files_params(old_relative_path, new_relative_path)
+        if os.path.isfile(os.path.join(self.repository_root_path, old_relative_path)):
+            # opening the file is what makes some servers (tsserver) load the project it belongs to, which
+            # they need in order to compute the edits for its rename
+            with self.open_file(old_relative_path):
+                return self.server.send.will_rename_files(params)
+        return self.server.send.will_rename_files(params)
+
+    def notify_did_rename_files(self, old_relative_path: str, new_relative_path: str) -> None:
+        """
+        Send the [workspace/didRenameFiles](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#workspace_didRenameFiles)
+        notification after a file or folder was renamed (or moved) on disk, so the server updates its view of the workspace.
+
+        :param old_relative_path: the relative path the file or folder had
+        :param new_relative_path: the relative path it has now
+        """
+        self.server.notify.did_rename_files(self._create_rename_files_params(old_relative_path, new_relative_path))
 
     def apply_text_edits_to_file(self, relative_path: str, edits: list[ls_types.TextEdit]) -> None:
         """
