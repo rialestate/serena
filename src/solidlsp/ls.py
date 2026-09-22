@@ -3312,6 +3312,7 @@ class SolidLanguageServer(ABC):
             seen_keys.add(symbol_key)
             result.append(symbol)
         return result
+
     def _create_rename_files_params(self, old_relative_path: str, new_relative_path: str) -> RenameFilesParams:
         return RenameFilesParams(
             files=[FileRename(oldUri=self._resolve_file_uri(old_relative_path), newUri=self._resolve_file_uri(new_relative_path))]
