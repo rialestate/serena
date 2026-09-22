@@ -11,6 +11,14 @@ Status of the `main` branch. Changes prior to the next official version change w
   - Contributions require acceptance of the new Contributor License Agreement (`CLA.md`), enforced via CLA assistant;
     see `CONTRIBUTING.md`
 * Tools:
+  - Add `rename_file`: renames or moves a file and updates the code that imports it, as the language server
+    proposes through `workspace/willRenameFiles` (Python via pyright/basedpyright/ty/pyrefly, TypeScript; other
+    servers that implement the request work unchanged). Files only; the tool's answer says when the server
+    proposed no edits, so the caller knows to search for the old name. With pyrefly, configure
+    `ls_specific_settings: {python_pyrefly: {indexing_mode: lazy-blocking}}`: in its default lazy-non-blocking
+    mode pyrefly may answer before its reverse-dependency graph is built and miss importers (measured: 1 of 5
+    dependents seen right after start-up, all 5 a few seconds later); in blocking mode the answer is complete,
+    the index completing cancels the first request and Serena's existing retry re-asks.
   - `find_implementations` on a class or interface for which the server reports no implementations now returns
     its direct subtypes from the server's type hierarchy (`textDocument/prepareTypeHierarchy` +
     `typeHierarchy/subtypes`), instead of `[]` — pyright and pyrefly answer `textDocument/implementation` for
@@ -130,6 +138,7 @@ Status of the `main` branch. Changes prior to the next official version change w
   - Fix: A language server's cache directory was determined by the language_id rather than 
     the language server identifier's key. The two identifiers coincided in most cases.
   - The Python servers (pyright, basedpyright, ty, pyrefly) and the TypeScript server advertise the
+    `workspace.fileOperations` (willRename/didRename) client capability.
     `textDocument.typeHierarchy` client capability.
   - Extensionless scripts are routed to their language by the shebang line (`#!/usr/bin/env python3`,
     `#!/bin/bash`, ...): `FilenameMatcher.is_relevant_file(path)` sniffs an existing file without an extension for
