@@ -11,6 +11,10 @@ Status of the `main` branch. Changes prior to the next official version change w
   - Contributions require acceptance of the new Contributor License Agreement (`CLA.md`), enforced via CLA assistant;
     see `CONTRIBUTING.md`
 * Tools:
+  - `find_declaration` now answers for a symbol defined outside the project — in the standard library or an installed
+    package — with the defining symbol read by its absolute path and marked `external: true`, instead of failing with
+    "outside of configured workspaces". References and other location requests keep skipping such locations, now at
+    info level and without treating them as a bug.
   - Per-edit diagnostics (the warnings and errors an edit newly introduces, reported by the editing tools) can be
     enabled per project with `edit_diagnostics: true` in `project.yml` (default off, as before). The answer now also
     names the language server the diagnostics come from, per file (`diagnostics_from`): one server's verdict is not
