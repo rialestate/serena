@@ -150,10 +150,6 @@ class FindSymbolTool(Tool, ToolMarkerSymbolicRead, LspApiMixin):
             .represent()
         )
 
-    @classmethod
-    def get_param_aliases(cls) -> dict[str, str]:
-        return {"name_path": "name_path_pattern"}
-
 
 class FindReferencingSymbolsTool(Tool, ToolMarkerSymbolicRead, LspApiMixin):
     """
