@@ -910,6 +910,52 @@ class SolidLanguageServer(ABC):
         """
         return True
 
+    def provides_complete_pull_diagnostics(self) -> bool:
+        """
+        Whether a pull-diagnostics answer is this server's complete verdict on the document it was asked about,
+        so that an EMPTY answer means the document is clean. Servers for which this holds override it to return ``True``;
+        by default an empty pull answer is not trusted and published diagnostics are awaited instead (some servers answer
+        ``textDocument/diagnostic`` with an empty report and deliver the real diagnostics only by publishing them).
+
+        A complete pull answer is also the only diagnostics source that is tied to the request asking for it: a published
+        diagnostics notification names the document but not the contents it was computed for, so one computed for
+        contents the document no longer has (or the empty one many servers publish when a document is closed) is
+        indistinguishable from a fresh one.
+        """
+        return False
+
+    def _pull_text_document_diagnostics(self, uri: str) -> list[ls_types.Diagnostic] | None:
+        """
+        Pulls the diagnostics of an open document from the language server.
+        Called only if :meth:`_supports_pull_diagnostics` returns ``True``.
+
+        :param uri: the URI of the (open) document
+        :return: the diagnostics, or ``None`` if the server gave no answer
+        """
+        response: Any = self.server.send.text_document_diagnostic(
+            {  # ty: ignore[invalid-argument-type]  # dict built from LSPConstants keys; shape matches the TypedDict
+                LSPConstants.TEXT_DOCUMENT: {
+                    LSPConstants.URI: uri,
+                }
+            }
+        )
+        if response is None:
+            return None
+        assert isinstance(response, dict), f"Unexpected response from Language Server (expected list, got {type(response)}): {response}"
+        diagnostics: list[ls_types.Diagnostic] = []
+        for item in response["items"]:  # type: ignore
+            new_item: ls_types.Diagnostic = {
+                "uri": uri,
+                "severity": item["severity"],
+                "message": item["message"],
+                "range": item["range"],
+                "code": item.get("code"),  # type: ignore
+            }
+            if "source" in item:
+                new_item["source"] = item["source"]
+            diagnostics.append(ls_types.Diagnostic(**new_item))
+        return diagnostics
+
     def _get_published_diagnostics_wait_timeout(self, pull_diagnostics_failed: bool) -> float:
         """
         Gets the timeout for waiting on published diagnostics after a diagnostics request.
@@ -984,18 +1030,11 @@ class SolidLanguageServer(ABC):
         pull_diagnostics_failed = False
 
         with self.open_file(relative_file_path):
-            response: Any = None
             # only send pull diagnostics when the server actually supports it; some servers
             # (e.g. Julia's LanguageServer.jl) hard-error and crash the process on unknown methods
             if self._supports_pull_diagnostics():
                 try:
-                    response = self.server.send.text_document_diagnostic(
-                        {  # ty: ignore[invalid-argument-type]  # dict built from LSPConstants keys; shape matches the TypedDict
-                            LSPConstants.TEXT_DOCUMENT: {
-                                LSPConstants.URI: uri,
-                            }
-                        }
-                    )
+                    ret = self._pull_text_document_diagnostics(uri)
                 except SolidLSPException as ex:
                     # Termination must propagate so tools_base can restart the LS and retry.
                     # Other pull-diagnostics failures (e.g. unsupported method without crash)
@@ -1003,27 +1042,10 @@ class SolidLanguageServer(ABC):
                     if ex.is_language_server_terminated():
                         raise
                     log.debug("Falling back to published diagnostics for %s due to pull-diagnostics error: %s", relative_file_path, ex)
-                    response = None
                     pull_diagnostics_failed = True
 
-            if response is not None:
-                assert isinstance(response, dict), (
-                    f"Unexpected response from Language Server (expected list, got {type(response)}): {response}"
-                )
-                ret = []
-                for item in response["items"]:  # type: ignore
-                    new_item: ls_types.Diagnostic = {
-                        "uri": uri,
-                        "severity": item["severity"],
-                        "message": item["message"],
-                        "range": item["range"],
-                        "code": item.get("code"),  # type: ignore
-                    }
-                    if "source" in item:
-                        new_item["source"] = item["source"]
-                    ret.append(ls_types.Diagnostic(**new_item))
-
-            if not ret:
+            pull_answered = ret is not None and (bool(ret) or self.provides_complete_pull_diagnostics())
+            if not pull_answered:
                 published_diagnostics = self._wait_for_relevant_published_diagnostics(
                     uri=published_uri,
                     after_generation=diagnostics_before_request,

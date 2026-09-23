@@ -778,6 +778,7 @@ def serena_config():
     for language in [
         LanguageServerId.PYTHON,
         LanguageServerId.PYTHON_TY,
+        LanguageServerId.PYTHON_PYREFLY,
         LanguageServerId.GO,
         LanguageServerId.JAVA,
         LanguageServerId.KOTLIN,
@@ -1346,6 +1347,76 @@ class TestSerenaAgent:
         diagnostics = parse_edit_diagnostics_result(result)
         assert "missing_container" in json.dumps(diagnostics[relative_path])
         assert json.loads(result)[DiagnosticsContext.DIAGNOSTICS_SOURCE_KEY] == {relative_path: LanguageServerId.PYTHON.value}
+
+    @pytest.mark.parametrize(
+        "serena_agent,relative_path,shifting_edit,first_fix,second_fix,breaking_edit,new_fragment",
+        [
+            pytest.param(
+                LanguageServerId.TYPESCRIPT,
+                "diagnostics_sample.ts",
+                ("export function brokenFactory", "// a comment moving everything below it one line down\nexport function brokenFactory"),
+                ("return missingGreeting;", 'return "hello";'),
+                ("console.log(missingConsumerValue);", "console.log(value.length);"),
+                ('return "hello";', "return missingFarewell;"),
+                "missingFarewell",
+                marks=get_pytest_markers(LanguageServerId.TYPESCRIPT),
+                id="typescript",
+            ),
+            pytest.param(
+                LanguageServerId.PYTHON_PYREFLY,
+                os.path.join("test_repo", "diagnostics_sample.py"),
+                ("def broken_factory", "# a comment moving everything below it one line down\ndef broken_factory"),
+                ("return missing_user", "raise NotImplementedError"),
+                ("print(undefined_name)", "print(created_user)"),
+                ("raise NotImplementedError", "return missing_admin"),
+                "missing_admin",
+                marks=get_pytest_markers(LanguageServerId.PYTHON_PYREFLY),
+                id="python_pyrefly",
+            ),
+        ],
+        indirect=["serena_agent"],
+    )
+    def test_edit_diagnostics_report_only_what_the_edit_introduced(
+        self,
+        serena_agent: SerenaAgent,
+        relative_path: str,
+        shifting_edit: tuple[str, str],
+        first_fix: tuple[str, str],
+        second_fix: tuple[str, str],
+        breaking_edit: tuple[str, str],
+        new_fragment: str,
+    ) -> None:
+        """
+        A sequence of edits of a file with two diagnostics: the diagnostics an edit leaves in place are never reported
+        again (neither when the edit moves them to other lines nor when it touches something else), the edit that makes
+        the file clean answers at once (an empty verdict is a verdict, not a reason to wait for another), and a
+        diagnostic an edit does introduce is reported.
+        """
+        replace_content_tool = serena_agent.get_tool(ReplaceContentTool)
+        project_config = serena_agent.get_active_project_or_raise().project_config
+
+        def edit(needle_and_repl: tuple[str, str]) -> tuple[str, float]:
+            needle, repl = needle_and_repl
+            start = time.monotonic()
+            result = replace_content_tool.apply(relative_path=relative_path, needle=needle, repl=repl, mode="literal")
+            return result, time.monotonic() - start
+
+        try:
+            project_config.edit_diagnostics = True
+            with project_file_modification_context(serena_agent, relative_path):
+                shifted, _ = edit(shifting_edit)
+                first_fixed, _ = edit(first_fix)
+                cleaned, cleaning_seconds = edit(second_fix)
+                broken, _ = edit(breaking_edit)
+        finally:
+            project_config.edit_diagnostics = False
+
+        assert DiagnosticsContext.DIAGNOSTICS_KEY not in shifted, "both diagnostics persist, only moved one line down"
+        assert DiagnosticsContext.DIAGNOSTICS_KEY not in first_fixed, "the remaining diagnostic persists"
+        assert DiagnosticsContext.DIAGNOSTICS_KEY not in cleaned
+        # waiting for a non-empty publication times out after 2.5 s, which is what every clean edit used to cost
+        assert cleaning_seconds < 2.5, f"the clean verdict took {cleaning_seconds:.1f} s"
+        assert new_fragment in json.dumps(parse_edit_diagnostics_result(broken)[relative_path])
 
     @pytest.mark.parametrize(
         "serena_agent",

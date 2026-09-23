@@ -565,8 +565,60 @@ class TypeScriptLanguageServer(SolidLanguageServer):
         return request_uri
 
     @override
+    def _supports_pull_diagnostics(self) -> bool:
+        # typescript-language-server does not implement textDocument/diagnostic, but it forwards any tsserver command
+        # through its typescript.tsserverRequest command, and tsserver's *DiagnosticsSync commands are exactly that
+        return True
+
+    @override
+    def provides_complete_pull_diagnostics(self) -> bool:
+        # the published diagnostics are not a complete verdict: they are the union of the syntactic, semantic and
+        # suggestion diagnostics received so far, debounced by 50 ms, so for a file whose semantic check takes longer
+        # the first publication carries only the syntactic ones (an empty publication preceding the real errors by
+        # ~0.4 s on a 973-line .tsx)
+        return True
+
+    @override
+    def _pull_text_document_diagnostics(self, uri: str) -> list[ls_types.Diagnostic] | None:
+        diagnostics: list[ls_types.Diagnostic] = []
+        for command in self._TSSERVER_DIAGNOSTICS_COMMANDS:
+            response = self.server.send.execute_command({"command": self._TSSERVER_REQUEST_COMMAND, "arguments": [command, {"file": uri}]})
+            if not isinstance(response, dict) or not response.get("success"):
+                raise SolidLSPException(f"tsserver command {command} failed for {uri}: {response}")
+            diagnostics.extend(self._to_lsp_diagnostic(uri, tsserver_diagnostic) for tsserver_diagnostic in response["body"])
+        return diagnostics
+
+    @override
     def _get_published_diagnostics_wait_timeout(self, pull_diagnostics_failed: bool) -> float:
         return self._published_diagnostics_timeout
+
+    _TSSERVER_REQUEST_COMMAND = "typescript.tsserverRequest"
+    _TSSERVER_DIAGNOSTICS_COMMANDS = ("syntacticDiagnosticsSync", "semanticDiagnosticsSync", "suggestionDiagnosticsSync")
+    _TSSERVER_SEVERITY_BY_CATEGORY = {
+        "error": ls_types.DiagnosticSeverity.Error,
+        "warning": ls_types.DiagnosticSeverity.Warning,
+        "suggestion": ls_types.DiagnosticSeverity.Hint,
+    }
+
+    @classmethod
+    def _to_lsp_diagnostic(cls, uri: str, tsserver_diagnostic: dict[str, Any]) -> ls_types.Diagnostic:
+        """
+        Converts a tsserver diagnostic the way typescript-language-server converts the ones it publishes
+        (its ``toDiagnostic``), so a pulled diagnostic and a published one compare equal.
+        """
+        start = tsserver_diagnostic["start"]
+        end = tsserver_diagnostic["end"]
+        return ls_types.Diagnostic(
+            uri=uri,
+            range={
+                "start": {"line": start["line"] - 1, "character": start["offset"] - 1},
+                "end": {"line": end["line"] - 1, "character": end["offset"] - 1},
+            },
+            message=tsserver_diagnostic["text"],
+            severity=cls._TSSERVER_SEVERITY_BY_CATEGORY.get(str(tsserver_diagnostic.get("category")), ls_types.DiagnosticSeverity.Error),
+            code=tsserver_diagnostic["code"],
+            source=tsserver_diagnostic.get("source") or "typescript",
+        )
 
     @override
     def _pre_open_for_cross_file_references(self) -> None:

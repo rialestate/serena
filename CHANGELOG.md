@@ -15,6 +15,11 @@ Status of the `main` branch. Changes prior to the next official version change w
     enabled per project with `edit_diagnostics: true` in `project.yml` (default off, as before). The answer now also
     names the language server the diagnostics come from, per file (`diagnostics_from`): one server's verdict is not
     every checker's.
+  - Per-edit diagnostics no longer wait out a timeout when an edit leaves the file clean (7.5 s per such edit with
+    TypeScript, 5 s with pyrefly): a server whose pulled diagnostics are its complete verdict (pyrefly; TypeScript, now
+    pulled from tsserver) is asked for them before and after the edit, and an empty answer counts as one. A diagnostic
+    the edit left in place is no longer reported as new, neither when the edit moved it to other lines nor after the
+    empty diagnostics a server publishes on closing a document had been taken for the file's state before the edit.
 
 * General:
   - **Major**: Add the Serena REPL as a new agent interface, reducing the tool set to a minimum and providing

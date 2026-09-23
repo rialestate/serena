@@ -169,6 +169,14 @@ class PyreflyLanguageServer(SolidLanguageServer):
         return symbol
 
     @override
+    def provides_complete_pull_diagnostics(self) -> bool:
+        # pyrefly answers textDocument/diagnostic for the contents the document was opened with, completely, in
+        # milliseconds (an empty report on a clean file, the full set on a broken one), while its published diagnostics
+        # interleave an empty publication per closed document and verdicts computed for contents a document opened a
+        # moment earlier had
+        return True
+
+    @override
     def _get_language_id_for_file(self, relative_file_path: str) -> str:
         return "python"
 

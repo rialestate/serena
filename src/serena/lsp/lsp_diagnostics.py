@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import json
+from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional, Self
@@ -12,6 +13,7 @@ from solidlsp.lsp_protocol_handler.lsp_types import DiagnosticSeverity
 if TYPE_CHECKING:
     from serena.agent import SerenaAgent
     from serena.symbol import LanguageServerSymbolRetriever
+    from solidlsp import SolidLanguageServer
 
 
 @dataclass(frozen=True)
@@ -47,6 +49,13 @@ class DiagnosticIdentity:
             source=diagnostic.get("source"),
         )
 
+    def without_range(self) -> tuple[str, int | None, str | None, str | None]:
+        """
+        :return: the identity of the diagnostic regardless of where it sits in the file, which is what a diagnostic
+            keeps when an edit elsewhere in the file moves it to other lines
+        """
+        return self.message, self.severity, self.code_repr, self.source
+
     @staticmethod
     def _diagnostic_code_repr(code: Any) -> str | None:
         if code is None:
@@ -72,10 +81,17 @@ class PublishedDiagnosticsSnapshot:
                 edited_file_path.after_relative_path
             )
 
-            cached_diagnostics = language_server.get_cached_published_text_document_diagnostics(
-                edited_file_path.before_relative_path,
-                min_severity=2,
-            )
+            cached_diagnostics: list[ls_types.Diagnostic] | None
+            if language_server.provides_complete_pull_diagnostics():
+                # the last PUBLISHED diagnostics are not necessarily the file's: many servers publish an empty list
+                # when a document is closed, and every tool closes the documents it opened, so that empty list would be
+                # taken for the state before the edit and every diagnostic the edit leaves in place reported as new
+                cached_diagnostics = None
+            else:
+                cached_diagnostics = language_server.get_cached_published_text_document_diagnostics(
+                    edited_file_path.before_relative_path,
+                    min_severity=2,
+                )
             if cached_diagnostics is None:
                 try:
                     cached_diagnostics = language_server.request_text_document_diagnostics(
@@ -165,35 +181,14 @@ class DiagnosticsDiff:
                 continue
             language_server_ids[edited_file_path.after_relative_path] = language_server.ls_id.get_key()
 
-            published_diagnostics = language_server.request_published_text_document_diagnostics(
-                relative_file_path=edited_file_path.after_relative_path,
-                after_generation=before_snapshot.generation_by_after_path.get(edited_file_path.after_relative_path, -1),
-                timeout=2.5,
-                min_severity=2,
-                allow_cached=True,
-            )
-            if not published_diagnostics:
-                try:
-                    published_diagnostics = language_server.request_text_document_diagnostics(
-                        edited_file_path.after_relative_path,
-                        min_severity=2,
-                    )
-                except:
-                    published_diagnostics = None
+            published_diagnostics = self._request_diagnostics_after_edit(language_server, before_snapshot, edited_file_path)
             if published_diagnostics is None:
                 continue
 
             existing_warning_identities = before_snapshot.warning_identities_by_before_path.get(
                 edited_file_path.before_relative_path, set()
             )
-            new_warning_identities: set[DiagnosticIdentity] = set()
-
-            for diagnostic in published_diagnostics:
-                diagnostic_identity = DiagnosticIdentity.from_diagnostic(diagnostic)
-                if diagnostic_identity in existing_warning_identities or diagnostic_identity in new_warning_identities:
-                    continue
-                new_warning_identities.add(diagnostic_identity)
-
+            for diagnostic in self._new_diagnostics(published_diagnostics, existing_warning_identities):
                 diagnostic_start = diagnostic["range"]["start"]
                 owner_symbol = symbol_retriever.find_diagnostic_owner_symbol(
                     relative_file_path=edited_file_path.after_relative_path,
@@ -208,6 +203,62 @@ class DiagnosticsDiff:
 
     def get_grouped_diagnostics(self) -> GroupedDiagnostics:
         return self._grouped_diagnostics
+
+    @staticmethod
+    def _request_diagnostics_after_edit(
+        language_server: "SolidLanguageServer",
+        before_snapshot: PublishedDiagnosticsSnapshot,
+        edited_file_path: EditedFilePath,
+    ) -> list[ls_types.Diagnostic] | None:
+        """
+        :return: the diagnostics of the edited file, or ``None`` if none could be obtained
+        """
+        if language_server.provides_complete_pull_diagnostics():
+            # an empty answer is the verdict "the file is clean", not the absence of one
+            try:
+                return language_server.request_text_document_diagnostics(edited_file_path.after_relative_path, min_severity=2)
+            except:
+                return None
+
+        published_diagnostics = language_server.request_published_text_document_diagnostics(
+            relative_file_path=edited_file_path.after_relative_path,
+            after_generation=before_snapshot.generation_by_after_path.get(edited_file_path.after_relative_path, -1),
+            timeout=2.5,
+            min_severity=2,
+            allow_cached=True,
+        )
+        if not published_diagnostics:
+            try:
+                published_diagnostics = language_server.request_text_document_diagnostics(
+                    edited_file_path.after_relative_path,
+                    min_severity=2,
+                )
+            except:
+                published_diagnostics = None
+        return published_diagnostics
+
+    @staticmethod
+    def _new_diagnostics(diagnostics: list[ls_types.Diagnostic], existing_identities: set[DiagnosticIdentity]) -> list[ls_types.Diagnostic]:
+        """
+        :param diagnostics: the diagnostics of the file after the edit
+        :param existing_identities: the identities of the file's diagnostics before the edit
+        :return: the diagnostics the edit introduced, each once: a diagnostic that existed before the edit is not new,
+            whether it stayed where it was or moved because the edit added or removed lines above it
+        """
+        identities = [DiagnosticIdentity.from_diagnostic(diagnostic) for diagnostic in diagnostics]
+        identities_after_edit = set(identities)
+        moved_candidates = Counter(identity.without_range() for identity in existing_identities if identity not in identities_after_edit)
+        new_diagnostics: list[ls_types.Diagnostic] = []
+        new_identities: set[DiagnosticIdentity] = set()
+        for diagnostic, identity in zip(diagnostics, identities, strict=True):
+            if identity in existing_identities or identity in new_identities:
+                continue
+            if moved_candidates[identity.without_range()] > 0:
+                moved_candidates[identity.without_range()] -= 1
+                continue
+            new_identities.add(identity)
+            new_diagnostics.append(diagnostic)
+        return new_diagnostics
 
     def get_language_server_ids(self) -> dict[str, str]:
         """:return: for each edited file whose diagnostics were requested, the id of the language server that answered"""
