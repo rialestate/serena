@@ -33,16 +33,12 @@ Status of the `main` branch. Changes prior to the next official version change w
     methods only.
   - Add `find_type_hierarchy` (optional tool): the direct subtypes or supertypes of a class/interface over the
     language server's type hierarchy, one level per call.
-
-* Tools:
   - Fix: `insert_before_symbol` inserted between a symbol and the comment block documenting it (a JSDoc block,
     `//` or `#` comments with no empty line in between), because language servers commonly exclude that block
     from the symbol's range (tsserver's range starts at `export function`, below the JSDoc); the content is now
     inserted above the block. `safe_delete_symbol` likewise removes the block with the symbol instead of leaving
     it orphaned. Applies to C-style and `#`-comment languages, recognised by file extension or, for an
     extensionless script, by its shebang; for other files the behaviour is unchanged
-
-* Tools:
   - Every tool that takes a symbol's name path accepts both spellings, `name_path` and `name_path_pattern`:
     the one the tool declares, which its schema and documentation name, and the other as an alias. Callers no
     longer have to remember that `find_symbol` and `safe_delete_symbol` spell it one way and the other symbolic
