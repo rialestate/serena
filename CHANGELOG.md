@@ -43,6 +43,11 @@ Status of the `main` branch. Changes prior to the next official version change w
     the one the tool declares, which its schema and documentation name, and the other as an alias. Callers no
     longer have to remember that `find_symbol` and `safe_delete_symbol` spell it one way and the other symbolic
     tools the other; a mismatch used to fail validation with `Field required`
+  - Per-edit diagnostics no longer wait out a timeout when an edit leaves the file clean (7.5 s per such edit with
+    TypeScript, 5 s with pyrefly): a server whose pulled diagnostics are its complete verdict (pyrefly; TypeScript, now
+    pulled from tsserver) is asked for them before and after the edit, and an empty answer counts as one. A diagnostic
+    the edit left in place is no longer reported as new, neither when the edit moved it to other lines nor after the
+    empty diagnostics a server publishes on closing a document had been taken for the file's state before the edit.
 
 * General:
   - **Major**: Add the Serena REPL as a new agent interface, reducing the tool set to a minimum and providing
