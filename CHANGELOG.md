@@ -11,6 +11,14 @@ Status of the `main` branch. Changes prior to the next official version change w
   - Contributions require acceptance of the new Contributor License Agreement (`CLA.md`), enforced via CLA assistant;
     see `CONTRIBUTING.md`
 
+* Tools:
+  - Fix: `insert_before_symbol` inserted between a symbol and the comment block documenting it (a JSDoc block,
+    `//` or `#` comments with no empty line in between), because language servers commonly exclude that block
+    from the symbol's range (tsserver's range starts at `export function`, below the JSDoc); the content is now
+    inserted above the block. `safe_delete_symbol` likewise removes the block with the symbol instead of leaving
+    it orphaned. Applies to C-style and `#`-comment languages, recognised by file extension or, for an
+    extensionless script, by its shebang; for other files the behaviour is unchanged
+
 * General:
   - **Major**: Add the Serena REPL as a new agent interface, reducing the tool set to a minimum and providing
     a general code execution environment for all Serena operations.
