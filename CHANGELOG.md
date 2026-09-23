@@ -11,6 +11,12 @@ Status of the `main` branch. Changes prior to the next official version change w
   - Contributions require acceptance of the new Contributor License Agreement (`CLA.md`), enforced via CLA assistant;
     see `CONTRIBUTING.md`
 
+* Tools:
+  - Every tool that takes a symbol's name path accepts both spellings, `name_path` and `name_path_pattern`:
+    the one the tool declares, which its schema and documentation name, and the other as an alias. Callers no
+    longer have to remember that `find_symbol` and `safe_delete_symbol` spell it one way and the other symbolic
+    tools the other; a mismatch used to fail validation with `Field required`
+
 * General:
   - **Major**: Add the Serena REPL as a new agent interface, reducing the tool set to a minimum and providing
     a general code execution environment for all Serena operations.
