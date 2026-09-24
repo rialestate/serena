@@ -142,6 +142,14 @@ Status of the `main` branch. Changes prior to the next official version change w
     thread (#2038)
 
 * Language Servers:
+  - Fix: after files changed outside Serena's own tools (a git checkout, another editor), symbolic queries could be
+    answered from a half-rebuilt index, silently: after a checkout moving ~900 files, `find_referencing_symbols`
+    returned the defining file alone (2 references of 104 with pyrefly, 8 of 338 with TypeScript). The poll that sends
+    `workspace/didChangeWatchedFiles` now waits until every notified server has processed it
+    (`SolidLanguageServer.wait_for_watched_files_processing`; pyrefly: until its recheck's `$/progress` ends, ~20 ms
+    for a one-file change). typescript-language-server now runs without its syntax server
+    (`tsserver.useSyntaxServer: never`): while the semantic tsserver loads a project, the syntax server was answering
+    references, rename, definition, implementation and navto from the open files alone.
   - Fix: Dart analysis server no longer receives rootUri/rootPath, which added the monorepo root as an extra analysis root and could pin a CPU core at idle (#2045)
   - Fix: The C# language server opened every `.csproj` found anywhere under the repository root,
     without consulting the project's ignore settings. On repositories that vendor third-party or

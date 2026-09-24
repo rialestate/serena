@@ -341,6 +341,13 @@ class TypeScriptLanguageServer(SolidLanguageServer):
             # machines). Serena relies on the types already installed in the project instead.
             "initializationOptions": {
                 "disableAutomaticTypingAcquisition": True,
+                # No syntax server: by default typescript-language-server runs a second, partialSemantic tsserver and,
+                # while the semantic one is loading a project, routes references, rename, definition, implementation
+                # and navto to it -- and it knows only the open files. After a checkout reloaded the projects, a
+                # references request answered 8 references in the defining file instead of 338 in 61 files, and a
+                # rename in that window would have edited one file and reported success. With a single tsserver, a
+                # request waits for the project load instead of being answered around it.
+                "tsserver": {"useSyntaxServer": "never"},
             },
             "capabilities": {
                 "textDocument": {

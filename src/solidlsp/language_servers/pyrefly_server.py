@@ -45,6 +45,12 @@ class PyreflyLanguageServer(SolidLanguageServer):
     Provides Python specific instantiation of the LanguageServer class using ``pyrefly``.
     """
 
+    # How long to wait for pyrefly to begin reporting the recheck a didChangeWatchedFiles notification starts, before
+    # concluding it started none. Its "Rechecking" progress begins within milliseconds of the notification.
+    WATCHED_FILES_PROGRESS_START_GRACE = 1.0
+    # How long a recheck may take before a request is answered anyway (a ~900-file checkout took 15-19 s).
+    WATCHED_FILES_PROCESSING_TIMEOUT = 120.0
+
     def __init__(self, config: LanguageServerConfig, repository_root_path: str, solidlsp_settings: SolidLSPSettings):
         """
         Creates a PyreflyLanguageServer instance. This class is not meant to be instantiated directly.
@@ -169,6 +175,28 @@ class PyreflyLanguageServer(SolidLanguageServer):
         if enclosing is not None and enclosing.get("kind") == ls_types.SymbolKind.Class:
             return enclosing
         return symbol
+
+    @override
+    def expect_watched_files_processing(self) -> None:
+        self._indexing_complete.clear()
+
+    @override
+    def wait_for_watched_files_processing(self) -> None:
+        # pyrefly answers the requests that arrive during a recheck from the modules rechecked so far: after a
+        # ~900-file checkout, a references request 50 ms into the recheck returned the defining file alone
+        start_deadline = time.monotonic() + self.WATCHED_FILES_PROGRESS_START_GRACE
+        while not self._active_progress_tokens:
+            if self._indexing_complete.is_set():
+                return
+            if time.monotonic() >= start_deadline:
+                self._indexing_complete.set()
+                return
+            time.sleep(0.02)
+        if not self._indexing_complete.wait(timeout=self.WATCHED_FILES_PROCESSING_TIMEOUT):
+            log.warning(
+                "Pyrefly did not finish rechecking the changed files within %.0fs; answering from a partial recheck",
+                self.WATCHED_FILES_PROCESSING_TIMEOUT,
+            )
 
     @override
     def provides_complete_pull_diagnostics(self) -> bool:

@@ -1204,6 +1204,23 @@ class SolidLanguageServer(ABC):
         Default implementation is a no-op.
         """
 
+    def expect_watched_files_processing(self) -> None:
+        """Signal that a ``workspace/didChangeWatchedFiles`` notification is about to be sent.
+
+        Called before the notification, so that the asynchronous work it starts (a recheck, a project reload)
+        cannot begin and end unobserved before :meth:`wait_for_watched_files_processing` looks for it.
+        Override in subclasses that track that work (e.g. via $/progress). Default implementation is a no-op.
+        """
+
+    def wait_for_watched_files_processing(self) -> None:
+        """Block until the server has processed the ``workspace/didChangeWatchedFiles`` notification just sent.
+
+        A server rebuilds its cross-file state asynchronously after such a notification, and answers the requests
+        that arrive meanwhile from the part it has rebuilt so far: after a checkout moving ~900 files, pyrefly and
+        tsserver both answered a references request with the defining file alone, silently, until the rebuild ended.
+        Override in subclasses that track that work (e.g. via $/progress). Default implementation is a no-op.
+        """
+
     def set_request_timeout(self, timeout: float | None) -> None:
         """
         :param timeout: the timeout, in seconds, for requests to the language server.
