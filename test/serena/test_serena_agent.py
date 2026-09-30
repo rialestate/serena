@@ -523,6 +523,13 @@ FIND_SYMBOL_REFERENCES_CASES = [
     FindSymbolCase(
         ls_id=LanguageServerId.LATEX, id="latex_methods_section", symbol_name="Methods", expected_kind="Module", expected_file="main.tex"
     ).to_pytest_param(),
+    FindSymbolCase(
+        ls_id=LanguageServerId.ASTRO,
+        id="astro_props_interface",
+        symbol_name="Props",
+        expected_kind="Interface",
+        expected_file=os.path.join("src", "components", "Card.astro"),
+    ).to_pytest_param(),
 ]
 
 FIND_REFERENCE_CASES = [
@@ -794,6 +801,7 @@ def serena_config():
         LanguageServerId.LEAN4,
         LanguageServerId.MSL,
         LanguageServerId.LATEX,
+        LanguageServerId.ASTRO,
     ]:
         repo_path = get_repo_path(language)
         if repo_path.exists():
@@ -1320,14 +1328,14 @@ class TestSerenaAgent:
     )
     def test_edit_diagnostics_are_a_project_setting_and_name_their_server(self, serena_agent: SerenaAgent):
         """
-        With the global flag off, a project's `edit_diagnostics: true` turns per-edit diagnostics on, and the answer names
-        the language server they come from; with both off, an edit reports none.
+        With the global flag off, a project's `ls_edit_diagnostics: true` turns per-edit diagnostics on, and the answer
+        names the language server they come from; with both off, an edit reports none.
         """
         relative_path = os.path.join("test_repo", "services.py")
         replace_content_tool = serena_agent.get_tool(ReplaceContentTool)
         project_config = serena_agent.get_active_project_or_raise().project_config
         assert replace_content_tool.ENABLE_DIAGNOSTICS is False
-        assert project_config.edit_diagnostics is False
+        assert project_config.ls_edit_diagnostics is False
 
         with project_file_modification_context(serena_agent, relative_path):
             silent_result = replace_content_tool.apply(
@@ -1336,13 +1344,13 @@ class TestSerenaAgent:
         assert DiagnosticsContext.DIAGNOSTICS_KEY not in silent_result
 
         try:
-            project_config.edit_diagnostics = True
+            project_config.ls_edit_diagnostics = True
             with project_file_modification_context(serena_agent, relative_path):
                 result = replace_content_tool.apply(
                     relative_path=relative_path, needle="return container", repl="return missing_container", mode="literal"
                 )
         finally:
-            project_config.edit_diagnostics = False
+            project_config.ls_edit_diagnostics = False
 
         diagnostics = parse_edit_diagnostics_result(result)
         assert "missing_container" in json.dumps(diagnostics[relative_path])
@@ -1402,14 +1410,14 @@ class TestSerenaAgent:
             return result, time.monotonic() - start
 
         try:
-            project_config.edit_diagnostics = True
+            project_config.ls_edit_diagnostics = True
             with project_file_modification_context(serena_agent, relative_path):
                 shifted, _ = edit(shifting_edit)
                 first_fixed, _ = edit(first_fix)
                 cleaned, cleaning_seconds = edit(second_fix)
                 broken, _ = edit(breaking_edit)
         finally:
-            project_config.edit_diagnostics = False
+            project_config.ls_edit_diagnostics = False
 
         assert DiagnosticsContext.DIAGNOSTICS_KEY not in shifted, "both diagnostics persist, only moved one line down"
         assert DiagnosticsContext.DIAGNOSTICS_KEY not in first_fixed, "the remaining diagnostic persists"
