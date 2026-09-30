@@ -10,7 +10,7 @@ import shutil
 import threading
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from collections.abc import Callable, Hashable, Iterator
+from collections.abc import Callable, Hashable, Iterator, Sequence
 from contextlib import contextmanager
 from copy import copy
 from dataclasses import dataclass
@@ -1071,6 +1071,16 @@ class SolidLanguageServer(ABC):
         """
         return 2
 
+    def notify_files_created(self, relative_file_paths: Sequence[str]) -> None:
+        """
+        Called when one or more files were newly created on disk (detected outside of Serena's own file
+        tools, e.g. by :class:`serena.ls_manager.LanguageServerFileChangeNotifier`), before those files are
+        opened via :meth:`open_file`. The default implementation does nothing: a `didChangeWatchedFiles`
+        notification followed by an open/close cycle is enough for most backends to fold a new file into
+        their index. Override this for a language server whose project system needs an explicit reload to
+        become aware of a file that did not exist when the project was first loaded.
+        """
+
     # --- Cross-workspace / additional workspace folder support ---
 
     @staticmethod
@@ -1202,6 +1212,23 @@ class SolidLanguageServer(ABC):
 
         Override in subclasses that track indexing progress.
         Default implementation is a no-op.
+        """
+
+    def expect_watched_files_processing(self) -> None:
+        """Signal that a ``workspace/didChangeWatchedFiles`` notification is about to be sent.
+
+        Called before the notification, so that the asynchronous work it starts (a recheck, a project reload)
+        cannot begin and end unobserved before :meth:`wait_for_watched_files_processing` looks for it.
+        Override in subclasses that track that work (e.g. via $/progress). Default implementation is a no-op.
+        """
+
+    def wait_for_watched_files_processing(self) -> None:
+        """Block until the server has processed the ``workspace/didChangeWatchedFiles`` notification just sent.
+
+        A server rebuilds its cross-file state asynchronously after such a notification, and answers the requests
+        that arrive meanwhile from the part it has rebuilt so far: after a checkout moving ~900 files, pyrefly and
+        tsserver both answered a references request with the defining file alone, silently, until the rebuild ended.
+        Override in subclasses that track that work (e.g. via $/progress). Default implementation is a no-op.
         """
 
     def set_request_timeout(self, timeout: float | None) -> None:
@@ -2003,11 +2030,12 @@ class SolidLanguageServer(ABC):
             # no cached result: get the raw root symbols from the language server
             document_symbols = self._build_document_symbols_from_raw_symbols(relative_file_path, file_buffer=file_data)
 
-            # update cache
+            # update cache (only cache non-empty results to avoid permanently caching unindexed responses)
             content_hash = file_data.content_hash
-            log.debug("Updating cached document symbols for %s (hash=%s)", relative_file_path, content_hash)
-            self._document_symbols_cache[cache_key] = (content_hash, document_symbols)
-            self._document_symbols_cache_is_modified = True
+            if document_symbols.root_symbols:
+                log.debug("Updating cached document symbols for %s (hash=%s)", relative_file_path, content_hash)
+                self._document_symbols_cache[cache_key] = (content_hash, document_symbols)
+                self._document_symbols_cache_is_modified = True
 
             return document_symbols
 

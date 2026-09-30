@@ -355,10 +355,13 @@ class LanguageServerFileChangeNotifier:
         params: DidChangeWatchedFilesParams = {"changes": changes}
         created_paths = [rel_path for rel_path, change_type in events if change_type == FileChangeType.Created]
 
+        notified_servers: list[SolidLanguageServer] = []
         for ls in self._language_server_manager.iter_language_servers():
             # send the didChangeWatchedFiles notification to the language server
             try:
+                ls.expect_watched_files_processing()
                 ls.server.notify.did_change_watched_files(params)
+                notified_servers.append(ls)
             except Exception as e:
                 log.error("Failed to notify language server of watched file changes", exc_info=e)
 
@@ -366,13 +369,30 @@ class LanguageServerFileChangeNotifier:
             # (observed with pyright) to fold a brand-new file into its cross-file reference graph;
             # an open/close cycle forces the parse+bind that Serena's own file tools trigger via
             # SolidLanguageServer.open_file().
-            for rel_path in created_paths:
-                if ls.is_ignored_path(rel_path, ignore_unsupported_files=True):
-                    continue
+            relevant_created_paths = [
+                rel_path for rel_path in created_paths if not ls.is_ignored_path(rel_path, ignore_unsupported_files=True)
+            ]
+            if relevant_created_paths:
+                try:
+                    ls.notify_files_created(relevant_created_paths)
+                except Exception as e:
+                    log.error("Failed to notify language server of newly created files", exc_info=e)
+            for rel_path in relevant_created_paths:
                 try:
                     with ls.open_file(rel_path):
                         pass
                 except Exception as e:
                     log.error(f"Failed to refresh newly created file {rel_path!r} in language server", exc_info=e)
+
+        # Every notified server rebuilds asynchronously, and answers meanwhile from the part rebuilt so far: the
+        # request this poll precedes must not be answered from a half-rebuilt index. Every server is waited for, not
+        # only the one the calling tool needs, because the NEXT tool's poll finds nothing to notify and waits for
+        # nothing; the servers rebuild concurrently, so this costs the slowest rebuild, not their sum.
+        for ls in notified_servers:
+            with LogTime(f"Waiting for {ls.ls_id} to process {len(events)} watched file change(s)", logger=log):
+                try:
+                    ls.wait_for_watched_files_processing()
+                except Exception as e:
+                    log.error(f"Failed waiting for {ls.ls_id} to process watched file changes", exc_info=e)
 
         return len(events)
