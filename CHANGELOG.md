@@ -16,9 +16,9 @@ Status of the `main` branch. Changes prior to the next official version change w
     "outside of configured workspaces". References and other location requests keep skipping such locations, now at
     info level and without treating them as a bug.
   - Per-edit diagnostics (the warnings and errors an edit newly introduces, reported by the editing tools) can be
-    enabled per project with `edit_diagnostics: true` in `project.yml` (default off, as before). The answer now also
-    names the language server the diagnostics come from, per file (`diagnostics_from`): one server's verdict is not
-    every checker's.
+    enabled per project with `ls_edit_diagnostics: true` in `project.yml` (default off, as before; LSP backend and
+    `tools` interface only). The answer now also names the language server the diagnostics come from, per file
+    (`diagnostics_from`).
   - Per-edit diagnostics no longer wait out a timeout when an edit leaves the file clean (7.5 s per such edit with
     TypeScript, 5 s with pyrefly): a server whose pulled diagnostics are its complete verdict (pyrefly; TypeScript, now
     pulled from tsserver) is asked for them before and after the edit, and an empty answer counts as one. A diagnostic
