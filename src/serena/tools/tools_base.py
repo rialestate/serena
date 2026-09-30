@@ -282,13 +282,27 @@ class Tool(Component):
     def is_symbolic(self) -> bool:
         return issubclass(self.__class__, ToolMarkerSymbolicRead) or issubclass(self.__class__, ToolMarkerSymbolicEdit)
 
+    NAME_PATH_PARAM_SPELLINGS = ("name_path", "name_path_pattern")
+    """
+    the two spellings under which tools take a symbol's name path; each tool declares one of them, and accepts the other as an alias
+    """
+
     @classmethod
     def get_param_aliases(cls) -> dict[str, str]:
         """
         :return: a mapping of parameter aliases for the apply method, where the key is the alias and the value is the actual parameter name.
             This can be used to define alternative parameter names for the same parameter.
+            By default, a tool whose apply method takes one of the `NAME_PATH_PARAM_SPELLINGS` accepts the other one as an alias,
+            so that a caller need not remember which spelling a given tool uses.
         """
-        return {}
+        apply_fn = getattr(cls, "apply", None)
+        if apply_fn is None:
+            return {}
+        apply_params = inspect.signature(apply_fn).parameters
+        declared = [spelling for spelling in cls.NAME_PATH_PARAM_SPELLINGS if spelling in apply_params]
+        if len(declared) != 1:
+            return {}
+        return {alias: declared[0] for alias in cls.NAME_PATH_PARAM_SPELLINGS if alias != declared[0]}
 
     def apply_ex(self, log_call: bool = True, catch_exceptions: bool = True, mcp_ctx: Context | None = None, **kwargs) -> str:
         """

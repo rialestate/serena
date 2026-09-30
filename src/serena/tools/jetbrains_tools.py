@@ -114,10 +114,6 @@ class JetBrainsFindSymbolTool(Tool, ToolMarkerSymbolicRead, ToolMarkerOptional, 
             .represent()
         )
 
-    @classmethod
-    def get_param_aliases(cls) -> dict[str, str]:
-        return {"name_path": "name_path_pattern"}
-
 
 class JetBrainsMoveTool(Tool, ToolMarkerSymbolicEdit, ToolMarkerOptional, JetBrainsApiMixin):
     """
