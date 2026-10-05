@@ -18,6 +18,7 @@ from solidlsp.ls_utils import PathUtils, TextStepper, TextUtils
 from .project import Project
 from .util.file_proxy import FileProxy
 from .util.file_system import write_file_atomic
+from .util.leading_comments import LeadingCommentScanner
 
 log = logging.getLogger(__name__)
 TSymbol = TypeVar("TSymbol", bound=Symbol)
@@ -213,9 +214,6 @@ class CodeEditor(Generic[TSymbol], ABC):
         self._assert_editable_path(relative_file_path)
         symbol = self._find_unique_symbol(name_path, relative_file_path)
         symbol_start_pos = symbol.get_body_start_position_or_raise()
-
-        # insert position is the start of line where the symbol is defined
-        line = symbol_start_pos.line
         col = 0
 
         original_trailing_empty_lines = self._count_trailing_newlines(body) - 1
@@ -233,7 +231,22 @@ class CodeEditor(Generic[TSymbol], ABC):
 
         # apply edit
         with self.edited_file_context(relative_file_path) as edited_file:
+            # insert position is the start of the line where the symbol is defined, or where the comment documenting it begins
+            line = self._find_symbol_start_line_with_leading_comments(edited_file, symbol_start_pos.line)
             edited_file.insert_text_at_position(PositionInFile(line=line, col=col), body)
+
+    @staticmethod
+    def _find_symbol_start_line_with_leading_comments(edited_file: "CodeEditor.EditedFile", symbol_start_line: int) -> int:
+        """
+        :param edited_file: the file containing the symbol
+        :param symbol_start_line: the 0-based line on which the symbol's range starts
+        :return: the 0-based first line of the comment block attached to the symbol (which language servers commonly
+            exclude from the symbol's range), or `symbol_start_line` if there is none
+        """
+        scanner = LeadingCommentScanner.for_file(edited_file.relative_path, edited_file.get_contents())
+        if scanner is None:
+            return symbol_start_line
+        return scanner.find_start_line(symbol_start_line)
 
     def insert_at_line(self, relative_path: str, line: int, content: str) -> None:
         """
@@ -272,6 +285,12 @@ class CodeEditor(Generic[TSymbol], ABC):
         end_pos = symbol.get_body_end_position_or_raise()
 
         with self.edited_file_context(relative_file_path) as edited_file:
+            # the comment documenting the symbol goes with it
+            comment_start_line = self._find_symbol_start_line_with_leading_comments(edited_file, start_pos.line)
+            if comment_start_line < start_pos.line:
+                comment_first_line = edited_file.get_contents().splitlines()[comment_start_line]
+                start_pos = PositionInFile(line=comment_start_line, col=len(comment_first_line) - len(comment_first_line.lstrip()))
+
             # do the actual deletion
             edited_file.delete_text_between_positions(start_pos, end_pos)
 
