@@ -17,6 +17,14 @@ Status of the `main` branch. Changes prior to the next official version change w
     methods only.
   - Add `find_type_hierarchy` (optional tool): the direct subtypes or supertypes of a class/interface over the
     language server's type hierarchy, one level per call.
+  - `find_declaration` now answers for a symbol defined outside the project — in the standard library or an installed
+    package — with the defining symbol read by its absolute path and marked `external: true`, instead of failing with
+    "outside of configured workspaces". References and other location requests keep skipping such locations, now at
+    info level and without treating them as a bug.
+  - Per-edit diagnostics (the warnings and errors an edit newly introduces, reported by the editing tools) can be
+    enabled per project with `edit_diagnostics: true` in `project.yml` (default off, as before). The answer now also
+    names the language server the diagnostics come from, per file (`diagnostics_from`): one server's verdict is not
+    every checker's.
   - Add `rename_file`: renames or moves a file and updates the code that imports it, as the language server
     proposes through `workspace/willRenameFiles` (Python via pyright/basedpyright/ty/pyrefly, TypeScript; other
     servers that implement the request work unchanged). Files only; the tool's answer says when the server
@@ -40,18 +48,27 @@ Status of the `main` branch. Changes prior to the next official version change w
     empty diagnostics a server publishes on closing a document had been taken for the file's state before the edit.
 
 * Tools:
+  - `find_implementations` on a class or interface for which the server reports no implementations now returns
+    its direct subtypes from the server's type hierarchy (`textDocument/prepareTypeHierarchy` +
+    `typeHierarchy/subtypes`), instead of `[]` — pyright and pyrefly answer `textDocument/implementation` for
+    methods only.
+  - Add `find_type_hierarchy` (optional tool): the direct subtypes or supertypes of a class/interface over the
+    language server's type hierarchy, one level per call.
   - Fix: `insert_before_symbol` inserted between a symbol and the comment block documenting it (a JSDoc block,
     `//` or `#` comments with no empty line in between), because language servers commonly exclude that block
     from the symbol's range (tsserver's range starts at `export function`, below the JSDoc); the content is now
     inserted above the block. `safe_delete_symbol` likewise removes the block with the symbol instead of leaving
     it orphaned. Applies to C-style and `#`-comment languages, recognised by file extension or, for an
     extensionless script, by its shebang; for other files the behaviour is unchanged
-
-* Tools:
   - Every tool that takes a symbol's name path accepts both spellings, `name_path` and `name_path_pattern`:
     the one the tool declares, which its schema and documentation name, and the other as an alias. Callers no
     longer have to remember that `find_symbol` and `safe_delete_symbol` spell it one way and the other symbolic
     tools the other; a mismatch used to fail validation with `Field required`
+  - Per-edit diagnostics no longer wait out a timeout when an edit leaves the file clean (7.5 s per such edit with
+    TypeScript, 5 s with pyrefly): a server whose pulled diagnostics are its complete verdict (pyrefly; TypeScript, now
+    pulled from tsserver) is asked for them before and after the edit, and an empty answer counts as one. A diagnostic
+    the edit left in place is no longer reported as new, neither when the edit moved it to other lines nor after the
+    empty diagnostics a server publishes on closing a document had been taken for the file's state before the edit.
 
 * General:
   - **Major**: Add the Serena REPL as a new agent interface, reducing the tool set to a minimum and providing
@@ -158,6 +175,14 @@ Status of the `main` branch. Changes prior to the next official version change w
     JetBrains Runtime (`jbr/bin/java` and native libs), whose launcher failed to exec it
     with a permission error. Executable bits are now restored for every extracted file (#2100)
   - Add Astro language server support via `@astrojs/language-server` with a companion TypeScript language server (`@astrojs/ts-plugin`) for cross-file code intelligence (#2085)
+  - Fix: after files changed outside Serena's own tools (a git checkout, another editor), symbolic queries could be
+    answered from a half-rebuilt index, silently: after a checkout moving ~900 files, `find_referencing_symbols`
+    returned the defining file alone (2 references of 104 with pyrefly, 8 of 338 with TypeScript). The poll that sends
+    `workspace/didChangeWatchedFiles` now waits until every notified server has processed it
+    (`SolidLanguageServer.wait_for_watched_files_processing`; pyrefly: until its recheck's `$/progress` ends, ~20 ms
+    for a one-file change). typescript-language-server now runs without its syntax server
+    (`tsserver.useSyntaxServer: never`): while the semantic tsserver loads a project, the syntax server was answering
+    references, rename, definition, implementation and navto from the open files alone.
   - Fix: Dart analysis server no longer receives rootUri/rootPath, which added the monorepo root as an extra analysis root and could pin a CPU core at idle (#2045)
   - Fix: The C# language server opened every `.csproj` found anywhere under the repository root,
     without consulting the project's ignore settings. On repositories that vendor third-party or
@@ -179,6 +204,9 @@ Status of the `main` branch. Changes prior to the next official version change w
   - Bump the bundled pyrefly to 1.2.0: 1.1.1 advertises `workspace/willRenameFiles` but answers it with `null`;
     1.2.0 answers with the import edits (measured on the Python test repo: the two absolute importers of a
     renamed module; a relative import of it, `from .models import`, is not rewritten by either)
+  - The Python servers (pyright, basedpyright, ty, pyrefly) and the TypeScript server advertise the
+    `workspace.fileOperations` (willRename/didRename) client capability.
+    `textDocument.typeHierarchy` client capability.
   - Extensionless scripts are routed to their language by the shebang line (`#!/usr/bin/env python3`,
     `#!/bin/bash`, ...): `FilenameMatcher.is_relevant_file(path)` sniffs an existing file without an extension for
     the interpreters a language declares (Python, Bash, Ruby, Perl), and the places that hold a path — the source
@@ -189,6 +217,9 @@ Status of the `main` branch. Changes prior to the next official version change w
     `textDocument.typeHierarchy` client capability.
   - The Python servers (pyright, basedpyright, ty, pyrefly) and the TypeScript server advertise the
     `workspace.fileOperations` (willRename/didRename) client capability.
+  - Bump the bundled pyrefly to 1.2.0: 1.1.1 advertises `workspace/willRenameFiles` but answers it with `null`;
+    1.2.0 answers with the import edits (measured on the Python test repo: the two absolute importers of a
+    renamed module; a relative import of it, `from .models import`, is not rewritten by either)
   - Fix: TypeScript and VTS now disable automatic type acquisition as intended, while VTS
     preserves explicit user settings across initialization and configuration requests (#1989)
     VTS initialization options now override defaults per top-level key rather than replacing the
