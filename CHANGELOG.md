@@ -29,6 +29,10 @@ Status of the `main` branch. Changes prior to the next official version change w
     enabled per project with `ls_edit_diagnostics: true` in `project.yml` (default off, as before; LSP backend and
     `tools` interface only). The answer now also names the language server the diagnostics come from, per file
     (`diagnostics_from`).
+  - `find_declaration` now answers for a symbol defined outside the project — in the standard library or an installed
+    package — with the defining symbol read by its absolute path and marked `external: true`, instead of failing with
+    "outside of configured workspaces". References and other location requests keep skipping such locations, now at
+    info level and without treating them as a bug.
 
 * General:
   - **Major**: Add the Serena REPL as a new agent interface, reducing the tool set to a minimum and providing
