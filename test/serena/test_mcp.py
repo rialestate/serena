@@ -1,5 +1,7 @@
 """Tests for the mcp.py module in serena."""
 
+import asyncio
+
 import pytest
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.tools.base import Tool as MCPTool
@@ -310,3 +312,75 @@ def test_make_tool_all_tools(tool_class) -> None:
 
     # The description should be a string (either from docstring or default)
     assert isinstance(mcp_tool.description, str)
+
+
+NAME_PATH_SPELLINGS = ("name_path", "name_path_pattern")
+
+NAME_PATH_TOOL_CLASSES = [
+    tool_class
+    for tool_class in ToolRegistry().get_all_tool_classes()
+    if any(spelling in tool_class.get_apply_fn_metadata_from_cls().arg_model.model_fields for spelling in NAME_PATH_SPELLINGS)
+]
+
+
+def _placeholder_arguments(parameters: dict) -> dict:
+    """
+    :return: a placeholder value for each required parameter of the given JSON schema
+    """
+    placeholders = {"string": "x", "integer": 0, "number": 0, "boolean": False, "array": [], "object": {}}
+    result = {}
+    for name in parameters.get("required", []):
+        schema = parameters["properties"][name]
+        schema_type = schema.get("type") or schema.get("anyOf", [{}])[0].get("type", "string")
+        result[name] = placeholders[schema_type]
+    return result
+
+
+def test_name_path_tools_found() -> None:
+    names = {tool_class.get_name_from_cls() for tool_class in NAME_PATH_TOOL_CLASSES}
+    assert {"find_symbol", "find_referencing_symbols", "replace_symbol_body", "safe_delete_symbol"} <= names
+
+
+@pytest.mark.parametrize("tool_class", NAME_PATH_TOOL_CLASSES)
+def test_name_path_accepted_under_both_spellings(tool_class: type[Tool]) -> None:
+    """
+    A tool takes a symbol's name path under whichever of the two spellings the caller uses; its schema names only the
+    one the tool declares.
+    """
+    tool_instance = tool_class(MockAgent())
+    received_kwargs: list[dict] = []
+
+    def apply_ex(log_call: bool = True, catch_exceptions: bool = True, mcp_ctx: Context | None = None, **kwargs) -> str:
+        received_kwargs.append(kwargs)
+        return "ok"
+
+    tool_instance.apply_ex = apply_ex  # type: ignore[method-assign]
+    mcp_tool = make_tool(tool_instance)
+    properties = mcp_tool.parameters["properties"]
+    declared = [spelling for spelling in NAME_PATH_SPELLINGS if spelling in properties]
+    assert len(declared) == 1, f"{tool_class.__name__} should declare exactly one spelling of the name path"
+
+    for spelling in NAME_PATH_SPELLINGS:
+        arguments = _placeholder_arguments(mcp_tool.parameters)
+        arguments.pop(declared[0], None)
+        arguments[spelling] = "Outer/inner"
+        assert asyncio.run(mcp_tool.run(arguments, Context())) == "ok"
+        assert received_kwargs[-1][declared[0]] == "Outer/inner"
+        assert spelling == declared[0] or spelling not in received_kwargs[-1]
+
+
+def test_both_spellings_given_keeps_the_declared_one() -> None:
+    class NamePathTool(BaseMockTool):
+        def apply(self, name_path: str) -> str:
+            """
+            :param name_path: the name path
+            """
+            return name_path
+
+        def apply_ex(self, log_call: bool = True, catch_exceptions: bool = True, mcp_ctx: Context | None = None, **kwargs) -> str:
+            return self.apply(**kwargs)
+
+    assert NamePathTool.get_param_aliases() == {"name_path_pattern": "name_path"}
+    mcp_tool = make_tool(NamePathTool())
+    # the alias is not rewritten over a value given under the declared spelling
+    assert asyncio.run(mcp_tool.run({"name_path": "A", "name_path_pattern": "B"}, Context())) == "A"
