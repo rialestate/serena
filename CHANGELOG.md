@@ -25,6 +25,10 @@ Status of the `main` branch. Changes prior to the next official version change w
     mode pyrefly may answer before its reverse-dependency graph is built and miss importers (measured: 1 of 5
     dependents seen right after start-up, all 5 a few seconds later); in blocking mode the answer is complete,
     the index completing cancels the first request and Serena's existing retry re-asks.
+  - Per-edit diagnostics (the warnings and errors an edit newly introduces, reported by the editing tools) can be
+    enabled per project with `ls_edit_diagnostics: true` in `project.yml` (default off, as before; LSP backend and
+    `tools` interface only). The answer now also names the language server the diagnostics come from, per file
+    (`diagnostics_from`).
 
 * General:
   - **Major**: Add the Serena REPL as a new agent interface, reducing the tool set to a minimum and providing
