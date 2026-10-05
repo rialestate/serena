@@ -11,20 +11,19 @@ Status of the `main` branch. Changes prior to the next official version change w
   - Contributions require acceptance of the new Contributor License Agreement (`CLA.md`), enforced via CLA assistant;
     see `CONTRIBUTING.md`
 * Tools:
-  - `find_implementations` on a class or interface for which the server reports no implementations now returns
-    its direct subtypes from the server's type hierarchy (`textDocument/prepareTypeHierarchy` +
-    `typeHierarchy/subtypes`), instead of `[]` — pyright and pyrefly answer `textDocument/implementation` for
-    methods only.
-  - Add `find_type_hierarchy` (optional tool): the direct subtypes or supertypes of a class/interface over the
-    language server's type hierarchy, one level per call.
   - `find_declaration` now answers for a symbol defined outside the project — in the standard library or an installed
     package — with the defining symbol read by its absolute path and marked `external: true`, instead of failing with
     "outside of configured workspaces". References and other location requests keep skipping such locations, now at
     info level and without treating them as a bug.
   - Per-edit diagnostics (the warnings and errors an edit newly introduces, reported by the editing tools) can be
-    enabled per project with `edit_diagnostics: true` in `project.yml` (default off, as before). The answer now also
-    names the language server the diagnostics come from, per file (`diagnostics_from`): one server's verdict is not
-    every checker's.
+    enabled per project with `ls_edit_diagnostics: true` in `project.yml` (default off, as before; LSP backend and
+    `tools` interface only). The answer now also names the language server the diagnostics come from, per file
+    (`diagnostics_from`).
+  - Per-edit diagnostics no longer wait out a timeout when an edit leaves the file clean (7.5 s per such edit with
+    TypeScript, 5 s with pyrefly): a server whose pulled diagnostics are its complete verdict (pyrefly; TypeScript, now
+    pulled from tsserver) is asked for them before and after the edit, and an empty answer counts as one. A diagnostic
+    the edit left in place is no longer reported as new, neither when the edit moved it to other lines nor after the
+    empty diagnostics a server publishes on closing a document had been taken for the file's state before the edit.
   - Add `rename_file`: renames or moves a file and updates the code that imports it, as the language server
     proposes through `workspace/willRenameFiles` (Python via pyright/basedpyright/ty/pyrefly, TypeScript; other
     servers that implement the request work unchanged). Files only; the tool's answer says when the server
@@ -33,42 +32,26 @@ Status of the `main` branch. Changes prior to the next official version change w
     mode pyrefly may answer before its reverse-dependency graph is built and miss importers (measured: 1 of 5
     dependents seen right after start-up, all 5 a few seconds later); in blocking mode the answer is complete,
     the index completing cancels the first request and Serena's existing retry re-asks.
-  - Per-edit diagnostics (the warnings and errors an edit newly introduces, reported by the editing tools) can be
-    enabled per project with `ls_edit_diagnostics: true` in `project.yml` (default off, as before; LSP backend and
-    `tools` interface only). The answer now also names the language server the diagnostics come from, per file
-    (`diagnostics_from`).
-  - `find_declaration` now answers for a symbol defined outside the project — in the standard library or an installed
-    package — with the defining symbol read by its absolute path and marked `external: true`, instead of failing with
-    "outside of configured workspaces". References and other location requests keep skipping such locations, now at
-    info level and without treating them as a bug.
-  - Per-edit diagnostics no longer wait out a timeout when an edit leaves the file clean (7.5 s per such edit with
-    TypeScript, 5 s with pyrefly): a server whose pulled diagnostics are its complete verdict (pyrefly; TypeScript, now
-    pulled from tsserver) is asked for them before and after the edit, and an empty answer counts as one. A diagnostic
-    the edit left in place is no longer reported as new, neither when the edit moved it to other lines nor after the
-    empty diagnostics a server publishes on closing a document had been taken for the file's state before the edit.
-
-* Tools:
   - `find_implementations` on a class or interface for which the server reports no implementations now returns
     its direct subtypes from the server's type hierarchy (`textDocument/prepareTypeHierarchy` +
     `typeHierarchy/subtypes`), instead of `[]` — pyright and pyrefly answer `textDocument/implementation` for
     methods only.
   - Add `find_type_hierarchy` (optional tool): the direct subtypes or supertypes of a class/interface over the
     language server's type hierarchy, one level per call.
+
+* Tools:
   - Fix: `insert_before_symbol` inserted between a symbol and the comment block documenting it (a JSDoc block,
     `//` or `#` comments with no empty line in between), because language servers commonly exclude that block
     from the symbol's range (tsserver's range starts at `export function`, below the JSDoc); the content is now
     inserted above the block. `safe_delete_symbol` likewise removes the block with the symbol instead of leaving
     it orphaned. Applies to C-style and `#`-comment languages, recognised by file extension or, for an
     extensionless script, by its shebang; for other files the behaviour is unchanged
+
+* Tools:
   - Every tool that takes a symbol's name path accepts both spellings, `name_path` and `name_path_pattern`:
     the one the tool declares, which its schema and documentation name, and the other as an alias. Callers no
     longer have to remember that `find_symbol` and `safe_delete_symbol` spell it one way and the other symbolic
     tools the other; a mismatch used to fail validation with `Field required`
-  - Per-edit diagnostics no longer wait out a timeout when an edit leaves the file clean (7.5 s per such edit with
-    TypeScript, 5 s with pyrefly): a server whose pulled diagnostics are its complete verdict (pyrefly; TypeScript, now
-    pulled from tsserver) is asked for them before and after the edit, and an empty answer counts as one. A diagnostic
-    the edit left in place is no longer reported as new, neither when the edit moved it to other lines nor after the
-    empty diagnostics a server publishes on closing a document had been taken for the file's state before the edit.
 
 * General:
   - **Major**: Add the Serena REPL as a new agent interface, reducing the tool set to a minimum and providing
@@ -213,13 +196,6 @@ Status of the `main` branch. Changes prior to the next official version change w
     file gathering, the ignore checks, the language detection — ask it, so `dev`- and `bin/`-style scripts are
     seen by the symbol index and the tools instead of being invisible. `is_relevant_filename` keeps its contract:
     decided by the name alone, no file is read.
-  - The Python servers (pyright, basedpyright, ty, pyrefly) and the TypeScript server advertise the
-    `textDocument.typeHierarchy` client capability.
-  - The Python servers (pyright, basedpyright, ty, pyrefly) and the TypeScript server advertise the
-    `workspace.fileOperations` (willRename/didRename) client capability.
-  - Bump the bundled pyrefly to 1.2.0: 1.1.1 advertises `workspace/willRenameFiles` but answers it with `null`;
-    1.2.0 answers with the import edits (measured on the Python test repo: the two absolute importers of a
-    renamed module; a relative import of it, `from .models import`, is not rewritten by either)
   - Fix: TypeScript and VTS now disable automatic type acquisition as intended, while VTS
     preserves explicit user settings across initialization and configuration requests (#1989)
     VTS initialization options now override defaults per top-level key rather than replacing the
