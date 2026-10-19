@@ -13,16 +13,26 @@ import psutil
 import pytest
 
 from solidlsp.language_servers.typescript_language_server import TypeScriptLanguageServer
-from solidlsp.ls_config import LanguageServerId
+from solidlsp.ls_config import LanguageServerConfig, LanguageServerId
+from solidlsp.settings import SolidLSPSettings
 from test.conftest import start_ls_context
 
 
-def test_initialize_params_disable_the_syntax_server() -> None:
+@pytest.mark.parametrize("is_project_trusted", [True, False])
+def test_initialize_params_disable_the_syntax_server(tmp_path: Path, is_project_trusted: bool) -> None:
     server = object.__new__(TypeScriptLanguageServer)
+    server.config = LanguageServerConfig(ls_id=LanguageServerId.TYPESCRIPT, is_project_trusted=is_project_trusted)
+    server._custom_settings = SolidLSPSettings.CustomLSSettings({})
+    server._ls_resources_dir = str(tmp_path)
+    server.repository_root_path = str(tmp_path / "project")
+    # an untrusted project pins the managed tsserver, which must exist
+    tsdk_path = tmp_path / "ts-lsp" / "node_modules" / "typescript" / "lib"
+    tsdk_path.mkdir(parents=True)
+    (tsdk_path / "tsserver.js").write_text("", encoding="utf-8")
 
     initialization_options = server._create_base_initialize_params()["initializationOptions"]
 
-    assert initialization_options["tsserver"] == {"useSyntaxServer": "never"}
+    assert initialization_options["tsserver"]["useSyntaxServer"] == "never"
     assert initialization_options["disableAutomaticTypingAcquisition"] is True
 
 
